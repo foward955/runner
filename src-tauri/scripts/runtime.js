@@ -1,9 +1,12 @@
 const { core } = Deno;
-const { op_print_msg } = Deno.core.ops;
+const { op_print_msg, op_print } = Deno.core.ops;
 
-function argsToMessage(...args) {
-  return args.map((arg) => JSON.stringify(arg)).join(" ");
-  // return args;
+function argsToMessage(args) {
+  if (args.length === 1) {
+    return JSON.stringify(args[0]);
+  } else {
+    return args.map((arg) => JSON.stringify(arg)).join(" ");
+  }
 }
 
 globalThis.runjs = {
@@ -14,7 +17,6 @@ globalThis.runjs = {
 
 globalThis.console = {
   log: (...args) => {
-    // core.print(`${argsToMessage(args)}\n`, false);
     runjs.printMsg(`${argsToMessage(args)}\n`);
   },
   error: (...args) => {

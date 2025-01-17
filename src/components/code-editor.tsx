@@ -1,6 +1,9 @@
 "use client";
 
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { sep, resolve as pathResolve } from "@tauri-apps/api/path";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import Editor from "@monaco-editor/react";
@@ -234,11 +237,21 @@ export function CodeEditor() {
         // const func = new AsyncFunction(...Object.keys(context), wrappedCode);
         // func(...Object.values(context));
 
-        let res = await invoke("greet", {
+        let res = await invoke<{ S?: string; V?: string[] }>("greet", {
           code: wrappedCode,
         });
 
-        customConsole.log(res);
+        if (typeof res.S !== "undefined") {
+          customConsole.log(res.S);
+        }
+
+        if (typeof res.V !== "undefined") {
+          if (Array.isArray(res.V)) {
+            for (let item of res.V) {
+              customConsole.log(item);
+            }
+          }
+        }
       } catch (error) {
         if (error instanceof Error) {
           customConsole.error(error.message);
@@ -354,20 +367,53 @@ export function CodeEditor() {
     }
   };
 
-  const downloadCode = () => {
+  const downloadCode = async () => {
     const currentTab = tabs.find((tab) => tab.id === activeTab);
-    const blob = new Blob([currentTab?.content || ""], {
-      type: "text/javascript",
+    // const blob = new Blob([currentTab?.content || ""], {
+    //   type: "text/javascript",
+    // });
+    // const url = URL.createObjectURL(blob);
+    // const a = document.createElement("a");
+    // a.href = url;
+    // a.download = currentTab?.name || "playground-code.js";
+    // document.body.appendChild(a);
+    // a.click();
+    // document.body.removeChild(a);
+    // URL.revokeObjectURL(url);
+    // toast.success("Code downloaded successfully!");
+    const dirPath = await open({
+      multiple: false,
+      directory: true,
     });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = currentTab?.name || "playground-code.js";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success("Code downloaded successfully!");
+
+    if (dirPath && currentTab) {
+      await writeTextFile(
+        await pathResolve(dirPath, currentTab.name),
+        currentTab.content
+      );
+    }
+  };
+
+  const openFile = async () => {
+    // Open a dialog
+    const filePath = await open({
+      multiple: false,
+      directory: false,
+    });
+
+    if (filePath) {
+      const fileContent = await readTextFile(filePath);
+
+      const name = filePath.slice(filePath.lastIndexOf(sep()) + 1);
+
+      const newTab = {
+        id: filePath,
+        name,
+        content: fileContent,
+      };
+      setTabs((prev) => [...prev, newTab]);
+      setActiveTab(filePath);
+    }
   };
 
   const runCode = () => {
@@ -399,8 +445,9 @@ export function CodeEditor() {
     <TooltipProvider>
       <ResizablePanelGroup
         direction={isMobile ? "vertical" : "horizontal"}
-        className="h-full rounded-lg border"
+        className="h-full"
       >
+        {/* rounded-lg border */}
         <ResizablePanel defaultSize={50} minSize={30}>
           <div className="h-full flex flex-col">
             <EditorToolbar
@@ -409,6 +456,7 @@ export function CodeEditor() {
               onRun={runCode}
               onToggleTheme={toggleEditorTheme}
               onDownload={downloadCode}
+              onOpenFile={openFile}
               onShare={shareCode}
               togglePackage={togglePackage}
             />
@@ -495,9 +543,7 @@ export function CodeEditor() {
             </div>
           </div>
         </ResizablePanel>
-
         <ResizableHandle withHandle />
-
         <ResizablePanel defaultSize={50} minSize={20}>
           <div className="h-full bg-black/5 dark:bg-white/5">
             <TerminalHeader />
