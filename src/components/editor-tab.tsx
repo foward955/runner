@@ -79,10 +79,10 @@ export function EditorTab({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-4 w-4 hover:bg-muted transition duration-200 ease-in-out transform hover:scale-150"
+                className="h-4 w-4 transition duration-200 ease-in-out transform"
                 onClick={saveCode}
               >
-                <Circle className="h-3 w-3 text-muted-foreground hover:text-destructive transition duration-200 ease-in-out" />
+                <Circle className="h-3 w-3 bg-white rounded-lg transition duration-200 ease-in-out" />
               </Button>
             ) : (
               <Button

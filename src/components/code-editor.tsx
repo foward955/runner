@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { readTextFile } from "@tauri-apps/plugin-fs";
 import { sep, resolve as pathResolve } from "@tauri-apps/api/path";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
@@ -31,7 +31,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import axios from "axios";
-import _, { debounce } from "lodash";
+import _ from "lodash";
 import moment from "moment";
 import dayjs from "dayjs";
 import chalk from "chalk";
@@ -50,12 +50,7 @@ interface FileTab {
 }
 
 const defaultCode = `// 🎉 Welcome to JavaScript Playground 🎉
-// Write, experiment, and have fun!
-
-function greet(name) {
-    return "👋 Hello, " + name + "! Welcome to your playground.";
-}
-console.log(greet("Developer"));`;
+// Write, experiment, and have fun!`;
 
 const AVAILABLE_PACKAGES = {
   axios: axios,
@@ -75,7 +70,7 @@ export function CodeEditor() {
   const [packages, setPackages] = useState<string[]>([]);
   const [isPackageSheetOpen, setIsPackageSheetOpen] = useState(false);
   const outputRef = useRef<string[]>([]);
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  // const timeoutRef = useRef<NodeJS.Timeout>();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [nextTabId, setNextTabId] = useState(1);
   const [tabs, setTabs] = useState<FileTab[]>([]);
@@ -148,25 +143,15 @@ export function CodeEditor() {
     }
   }, [output]);
 
-  useEffect(() => {
-    function handleKeyDown(event: any) {
-      if (
-        (event.key === "s" || event.key === "S") &&
-        (event.metaKey || event.ctrlKey)
-      ) {
-        console.log("ctrl+s");
-        saveCode(activeTab);
-      }
+  const onSaveKeyDown = (activeTab: string, event: any) => {
+    if (
+      (event.key === "s" || event.key === "S") &&
+      (event.metaKey || event.ctrlKey)
+    ) {
+      console.log("ctrl+s");
+      saveCode(activeTab);
     }
-
-    let debounced = debounce(handleKeyDown, 500);
-
-    document.addEventListener("keydown", debounced);
-
-    return () => {
-      document.removeEventListener("keydown", debounced);
-    };
-  }, [activeTab]);
+  };
 
   // useEffect(() => {
   //   executeCode(getCurrentCode());
@@ -299,9 +284,9 @@ export function CodeEditor() {
       )
     );
 
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
+    // if (timeoutRef.current) {
+    //   clearTimeout(timeoutRef.current);
+    // }
 
     // timeoutRef.current = setTimeout(async () => {
     //   executeCode(value!);
@@ -332,14 +317,15 @@ export function CodeEditor() {
     }
   };
 
-  const saveCode = (tabId: string, event?: React.MouseEvent) => {
+  const saveCode = async (tabId: string, event?: React.MouseEvent) => {
     event?.stopPropagation();
     const currentTab = tabs.find((tab) => tab.id === tabId);
+
     if (currentTab) {
       if (!currentTab.filePath) {
-        downloadCode();
+        await downloadCode();
       } else {
-        writeActiveTabContentToFile(currentTab);
+        await writeActiveTabContentToFile(currentTab);
       }
     }
   };
@@ -456,7 +442,16 @@ export function CodeEditor() {
     );
 
     // write to file
-    await writeTextFile(filePath, activeTab.content);
+    let result = await invoke("write_file", {
+      path: filePath,
+      content: getCurrentCode(),
+    });
+
+    if (result) {
+      toast.info(`save to: ${filePath} success.`);
+    } else {
+      toast.error(`save to: ${filePath} failed.`);
+    }
   };
 
   const downloadCode = async () => {
@@ -597,6 +592,7 @@ export function CodeEditor() {
               className="flex-1 relative"
               onMouseEnter={() => setIsHovered(true)}
               onMouseLeave={() => setIsHovered(false)}
+              onKeyDown={(e) => onSaveKeyDown(activeTab, e)}
             >
               {!isLoadingEditor && isHovered && (
                 <div

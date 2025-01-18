@@ -4,7 +4,7 @@ import { CodeEditor } from "@/components/code-editor";
 export default function Home() {
   return (
     <main className="min-h-screen bg-background p-0">
-      <div className="max-w-[1800px] mx-auto space-y-4">
+      <div className="mx-auto space-y-4">
         {/* <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                         <TerminalIcon className="w-6 h-6 md:w-8 md:h-8" />
