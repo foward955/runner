@@ -131,11 +131,19 @@ fn greet(code: String) -> ConsoleResult {
     }
 }
 
+#[tauri::command]
+fn rename_file(old: String, to: String) -> bool {
+    match std::fs::rename(old, to) {
+        Ok(_) => true,
+        Err(_) => false,
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![greet, rename_file])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

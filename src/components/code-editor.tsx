@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readTextFile, writeTextFile, rename } from "@tauri-apps/plugin-fs";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { sep, resolve as pathResolve } from "@tauri-apps/api/path";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
@@ -356,14 +356,16 @@ export function CodeEditor() {
 
   const handleRename = (tabId: string, newName: string) => {
     async function renameFile(oldPath: string, fileName: string) {
-      // rename
       const oldName = oldPath.slice(oldPath.lastIndexOf(sep()) + 1);
 
       if (oldName !== fileName) {
         const dir = oldPath.slice(0, oldPath.lastIndexOf(sep()));
         const filePath = await pathResolve(dir, fileName);
-        await rename(oldPath, filePath);
 
+        await invoke("rename_file", {
+          old: oldPath,
+          to: filePath,
+        });
         return filePath;
       }
     }
@@ -501,6 +503,7 @@ export function CodeEditor() {
         id: filePath,
         name,
         content: fileContent,
+        filePath,
         isContentChanged: false,
       };
       setTabs((prev) => [...prev, newTab]);
