@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { readTextFile, writeTextFile, rename } from "@tauri-apps/plugin-fs";
 import { sep, resolve as pathResolve } from "@tauri-apps/api/path";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
@@ -31,7 +31,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import axios from "axios";
-import _ from "lodash";
+import _, { debounce } from "lodash";
 import moment from "moment";
 import dayjs from "dayjs";
 import chalk from "chalk";
@@ -45,6 +45,8 @@ interface FileTab {
   name: string;
   content: string;
   isEditing?: boolean;
+  isContentChanged: boolean;
+  filePath?: string;
 }
 
 const defaultCode = `// 🎉 Welcome to JavaScript Playground 🎉
@@ -101,7 +103,14 @@ export function CodeEditor() {
     if (savedTabs) {
       setTabs(JSON.parse(savedTabs));
     } else {
-      setTabs([{ id: "tab-1", name: "main.js", content: defaultCode }]);
+      setTabs([
+        {
+          id: "tab-1",
+          name: "main.js",
+          content: defaultCode,
+          isContentChanged: false,
+        },
+      ]);
     }
 
     if (savedActiveTab) {
@@ -138,6 +147,26 @@ export function CodeEditor() {
       }
     }
   }, [output]);
+
+  useEffect(() => {
+    function handleKeyDown(event: any) {
+      if (
+        (event.key === "s" || event.key === "S") &&
+        (event.metaKey || event.ctrlKey)
+      ) {
+        console.log("ctrl+s");
+        saveCode(activeTab);
+      }
+    }
+
+    let debounced = debounce(handleKeyDown, 500);
+
+    document.addEventListener("keydown", debounced);
+
+    return () => {
+      document.removeEventListener("keydown", debounced);
+    };
+  }, [activeTab]);
 
   // useEffect(() => {
   //   executeCode(getCurrentCode());
@@ -264,7 +293,9 @@ export function CodeEditor() {
   const handleEditorChange = (value: string | undefined) => {
     setTabs((prev: any[]) =>
       prev.map((tab) =>
-        tab.id === activeTab ? { ...tab, content: value } : tab
+        tab.id === activeTab
+          ? { ...tab, content: value, isContentChanged: true }
+          : tab
       )
     );
 
@@ -272,7 +303,7 @@ export function CodeEditor() {
       clearTimeout(timeoutRef.current);
     }
 
-    // timeoutRef.current = setTimeout(() => {
+    // timeoutRef.current = setTimeout(async () => {
     //   executeCode(value!);
     // }, 750);
   };
@@ -284,6 +315,7 @@ export function CodeEditor() {
       id: newId,
       name: `untitled.js`,
       content: "// Start coding here\n",
+      isContentChanged: false,
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTab(newId);
@@ -300,6 +332,18 @@ export function CodeEditor() {
     }
   };
 
+  const saveCode = (tabId: string, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    const currentTab = tabs.find((tab) => tab.id === tabId);
+    if (currentTab) {
+      if (!currentTab.filePath) {
+        downloadCode();
+      } else {
+        writeActiveTabContentToFile(currentTab);
+      }
+    }
+  };
+
   const startRenaming = (tabId: string, event: React.MouseEvent) => {
     event.stopPropagation();
     setTabs((prev) =>
@@ -311,18 +355,39 @@ export function CodeEditor() {
   };
 
   const handleRename = (tabId: string, newName: string) => {
+    async function renameFile(oldPath: string, fileName: string) {
+      // rename
+      const oldName = oldPath.slice(oldPath.lastIndexOf(sep()) + 1);
+
+      if (oldName !== fileName) {
+        const dir = oldPath.slice(0, oldPath.lastIndexOf(sep()));
+        const filePath = await pathResolve(dir, fileName);
+        await rename(oldPath, filePath);
+
+        return filePath;
+      }
+    }
+
     if (newName.trim()) {
-      setTabs((prev) =>
-        prev.map((tab) =>
-          tab.id === tabId
-            ? {
-                ...tab,
-                name: newName.endsWith(".js") ? newName : `${newName}.js`,
-                isEditing: false,
-              }
-            : tab
-        )
-      );
+      const name = newName.endsWith(".js") ? newName : `${newName}.js`;
+      const currentTab = tabs.find((tab) => tab.id === tabId);
+
+      if (currentTab?.filePath) {
+        renameFile(currentTab.filePath, name).then((filePath) => {
+          setTabs((prev) =>
+            prev.map((tab) =>
+              tab.id === tabId
+                ? {
+                    ...tab,
+                    name,
+                    filePath: filePath ?? tab.filePath,
+                    isEditing: false,
+                  }
+                : tab
+            )
+          );
+        });
+      }
     } else {
       cancelRename();
     }
@@ -367,6 +432,30 @@ export function CodeEditor() {
     }
   };
 
+  const writeActiveTabContentToFile = async (activeTab: FileTab) => {
+    if (!activeTab.filePath) {
+      return;
+    }
+
+    // rename
+    let filePath = activeTab.filePath;
+
+    setTabs((prev) =>
+      prev.map((tab) =>
+        tab.id === activeTab.id
+          ? {
+              ...tab,
+              isContentChanged: false,
+              filePath,
+            }
+          : tab
+      )
+    );
+
+    // write to file
+    await writeTextFile(filePath, activeTab.content);
+  };
+
   const downloadCode = async () => {
     const currentTab = tabs.find((tab) => tab.id === activeTab);
     // const blob = new Blob([currentTab?.content || ""], {
@@ -387,10 +476,12 @@ export function CodeEditor() {
     });
 
     if (dirPath && currentTab) {
-      await writeTextFile(
-        await pathResolve(dirPath, currentTab.name),
-        currentTab.content
+      const filePath = await pathResolve(dirPath, currentTab.name);
+      currentTab.filePath = filePath;
+      setTabs((prev) =>
+        prev.map((tab) => (tab.id === currentTab.id ? currentTab : tab))
       );
+      await writeActiveTabContentToFile(currentTab);
     }
   };
 
@@ -410,6 +501,7 @@ export function CodeEditor() {
         id: filePath,
         name,
         content: fileContent,
+        isContentChanged: false,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTab(filePath);
@@ -469,9 +561,11 @@ export function CodeEditor() {
                       id={tab.id}
                       name={tab.name}
                       isActive={activeTab === tab.id}
-                      isEditing={!!tab.isEditing}
+                      isEditingName={!!tab.isEditing}
+                      isContentChanged={tab.isContentChanged}
                       onActivate={() => setActiveTab(tab.id)}
                       onClose={(e) => closeTab(tab.id, e)}
+                      saveCode={(e) => saveCode(tab.id, e)}
                       onStartRename={(e) => startRenaming(tab.id, e)}
                       onRename={(newName) => handleRename(tab.id, newName)}
                       onCancelRename={cancelRename}
