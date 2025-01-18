@@ -382,6 +382,7 @@ export function CodeEditor() {
                 ? {
                     ...tab,
                     name,
+                    id: filePath ?? tab.id,
                     filePath: filePath ?? tab.filePath,
                     isEditing: false,
                   }
