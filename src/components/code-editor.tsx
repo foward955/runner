@@ -5,10 +5,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { sep, resolve as pathResolve } from "@tauri-apps/api/path";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { Button } from "@/components/ui/button";
-// import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Copy } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -153,9 +152,10 @@ export function CodeEditor() {
     }
   };
 
-  // useEffect(() => {
-  //   executeCode(getCurrentCode());
-  // }, [activeTab, packages]);
+  const onClearTerminal = () => {
+    setOutput("");
+    outputRef.current = [];
+  };
 
   const toggleEditorTheme = () => {
     setEditorTheme((prev) => (prev === "vs-dark" ? "light" : "vs-dark"));
@@ -204,76 +204,27 @@ export function CodeEditor() {
     });
   };
 
-  const executeCode = useCallback(
-    async (codeToExecute: string) => {
-      outputRef.current = [];
-      setOutput("");
-      setError("");
+  const runJsCode = async () => {
+    const currentTab = tabs.find((tab) => tab.id === activeTab);
 
-      if (!codeToExecute || codeToExecute.trim() === "") {
-        setOutput("Editor is empty. Please write some code! 🚀");
-        return;
+    if (currentTab) {
+      let res = await invoke<{ S?: string; V?: string[] }>("greet", {
+        path: currentTab.filePath,
+      });
+
+      if (typeof res.S !== "undefined") {
+        customConsole.log(res.S);
       }
 
-      // const createContext = () => {
-      //   const context: Record<string, any> = { console: customConsole };
-
-      //   Object.keys(AVAILABLE_PACKAGES).forEach((pkg) => {
-      //     if (packages.includes(pkg)) {
-      //       context[pkg] =
-      //         AVAILABLE_PACKAGES[pkg as keyof typeof AVAILABLE_PACKAGES];
-      //     } else {
-      //       context[pkg] = createSafePackageProxy(pkg);
-      //     }
-      //   });
-
-      //   return context;
-      // };
-
-      try {
-        if (codeToExecute.trim() === "") {
-          customConsole.log("Editor is empty. Please write some code! 🚀");
-          return;
-        }
-
-        const wrappedCode = `
-                try {
-                    ${codeToExecute}
-                } catch (error) {
-                    console.error(error.message);
-                }
-            `;
-
-        // const context = createContext();
-        // const AsyncFunction = Object.getPrototypeOf(
-        //   async function () {}
-        // ).constructor;
-        // const func = new AsyncFunction(...Object.keys(context), wrappedCode);
-        // func(...Object.values(context));
-
-        let res = await invoke<{ S?: string; V?: string[] }>("greet", {
-          code: wrappedCode,
-        });
-
-        if (typeof res.S !== "undefined") {
-          customConsole.log(res.S);
-        }
-
-        if (typeof res.V !== "undefined") {
-          if (Array.isArray(res.V)) {
-            for (let item of res.V) {
-              customConsole.log(item);
-            }
+      if (typeof res.V !== "undefined") {
+        if (Array.isArray(res.V)) {
+          for (let item of res.V) {
+            customConsole.log(item);
           }
         }
-      } catch (error) {
-        if (error instanceof Error) {
-          customConsole.error(error.message);
-        }
       }
-    },
-    [packages]
-  );
+    }
+  };
 
   const handleEditorChange = (value: string | undefined) => {
     setTabs((prev: any[]) =>
@@ -283,14 +234,6 @@ export function CodeEditor() {
           : tab
       )
     );
-
-    // if (timeoutRef.current) {
-    //   clearTimeout(timeoutRef.current);
-    // }
-
-    // timeoutRef.current = setTimeout(async () => {
-    //   executeCode(value!);
-    // }, 750);
   };
 
   const addNewTab = () => {
@@ -456,18 +399,7 @@ export function CodeEditor() {
 
   const downloadCode = async () => {
     const currentTab = tabs.find((tab) => tab.id === activeTab);
-    // const blob = new Blob([currentTab?.content || ""], {
-    //   type: "text/javascript",
-    // });
-    // const url = URL.createObjectURL(blob);
-    // const a = document.createElement("a");
-    // a.href = url;
-    // a.download = currentTab?.name || "playground-code.js";
-    // document.body.appendChild(a);
-    // a.click();
-    // document.body.removeChild(a);
-    // URL.revokeObjectURL(url);
-    // toast.success("Code downloaded successfully!");
+
     const dirPath = await open({
       multiple: false,
       directory: true,
@@ -508,8 +440,9 @@ export function CodeEditor() {
   };
 
   const runCode = () => {
-    executeCode(getCurrentCode());
-    toast.success("Code executed!");
+    runJsCode().then(() => {
+      toast.success("Code executed!");
+    });
   };
 
   const togglePackage = () => {
@@ -638,9 +571,10 @@ export function CodeEditor() {
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
+
         <ResizablePanel defaultSize={50} minSize={20}>
           <div className="h-full bg-black/5 dark:bg-white/5">
-            <TerminalHeader />
+            <TerminalHeader onClear={onClearTerminal} />
             <TerminalOutput output={output} ref={scrollAreaRef} />
           </div>
         </ResizablePanel>

@@ -1,11 +1,18 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+
 import {
   Terminal,
+  Trash2,
   //  Circle
 } from "lucide-react";
 
-export function TerminalHeader() {
+interface TerminalHeaderProps {
+  onClear: () => void;
+}
+
+export function TerminalHeader({ onClear }: TerminalHeaderProps) {
   return (
     <div className="p-3 border-b bg-background/95 select-none">
       <div className="flex items-center justify-between">
@@ -13,11 +20,12 @@ export function TerminalHeader() {
           <Terminal className="w-5 h-5" />
           <h2 className="text-lg font-semibold">Console Output</h2>
         </div>
-        {/* <div className="flex gap-1.5">
-                    <Circle className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                    <Circle className="w-3 h-3 fill-green-400 text-green-400" />
-                    <Circle className="w-3 h-3 fill-red-400 text-red-400" />
-                </div> */}
+        <div className="flex gap-1.5">
+          <Button onClick={onClear} variant="outline" size="sm">
+            <Trash2 className="w-4 h-4 mr-2" />
+            Clear
+          </Button>
+        </div>
       </div>
     </div>
   );

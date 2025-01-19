@@ -1,5 +1,4 @@
 const { core } = Deno;
-const { op_print_msg, op_print } = Deno.core.ops;
 
 function argsToMessage(args) {
   if (args.length === 1) {
@@ -11,7 +10,7 @@ function argsToMessage(args) {
 
 globalThis.runjs = {
   printMsg: (s) => {
-    return op_print_msg(s);
+    return core.ops.op_print_msg(s);
   },
 };
 
