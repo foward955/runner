@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::env::current_dir;
+use std::io::Read;
 use std::rc::Rc;
 use std::sync::mpsc::channel;
 use std::time::Duration;
@@ -11,6 +12,9 @@ use deno_core::RuntimeOptions;
 use deno_core::{extension, op2, JsRuntime};
 use serde::Deserialize;
 use serde::Serialize;
+use tauri::Emitter;
+
+use crate::APP_HANDLE;
 
 thread_local! {
     static MSG: RefCell<Vec<String>> = const {RefCell::new(vec![])}
@@ -21,7 +25,8 @@ static RUNTIME_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/RUNJS
 #[op2]
 #[string]
 fn op_print_msg(#[string] s: String) -> Result<String, OpError> {
-    println!("{}", s);
+    println!("op_print_msg: {}", s);
+
     MSG.with(|f| {
         let mut m = f.borrow_mut();
         m.push(format!("{}", s));
@@ -105,5 +110,42 @@ pub(crate) async fn greet(path: String) -> ConsoleResult {
             }
         }
         Err(_) => ConsoleResult::S(String::default()),
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn run_js_script(path: String) {
+    let command = subprocess::Exec::cmd("deno")
+        .arg("--allow-import")
+        .arg(path.as_str());
+
+    let mut p = command
+        .stdout(subprocess::Redirection::Pipe)
+        .popen()
+        .unwrap();
+
+    if let Some(status) = p.wait_timeout(Duration::from_secs(3)).unwrap() {
+        match p.stdout.take() {
+            Some(mut f) => {
+                let mut s = String::default();
+                f.read_to_string(&mut s).unwrap();
+
+                match APP_HANDLE.lock() {
+                    Ok(mut handle_guard) => match handle_guard.as_mut() {
+                        Some(handle) => {
+                            handle.emit("console-message", s).unwrap();
+                        }
+                        None => {}
+                    },
+                    Err(_) => {}
+                }
+            }
+            None => {}
+        }
+        println!("process finished as {:?}", status);
+    } else {
+        p.terminate().unwrap();
+        p.wait().unwrap();
+        println!("process killed");
     }
 }

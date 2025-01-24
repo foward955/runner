@@ -1,6 +1,7 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { sep, resolve as pathResolve } from "@tauri-apps/api/path";
@@ -208,21 +209,32 @@ export function CodeEditor() {
     const currentTab = tabs.find((tab) => tab.id === activeTab);
 
     if (currentTab) {
-      let res = await invoke<{ S?: string; V?: string[] }>("greet", {
-        path: currentTab.filePath,
+      let unlisten = await listen("console-message", (event) => {
+        outputRef.current = [];
+        setOutput("");
+        customConsole.log(event.payload);
+        unlisten();
       });
 
-      if (typeof res.S !== "undefined") {
-        customConsole.log(res.S);
-      }
+      // let res = await invoke<{ S?: string; V?: string[] }>("greet", {
+      //   path: currentTab.filePath,
+      // });
 
-      if (typeof res.V !== "undefined") {
-        if (Array.isArray(res.V)) {
-          for (let item of res.V) {
-            customConsole.log(item);
-          }
-        }
-      }
+      // if (typeof res.S !== "undefined") {
+      //   customConsole.log(res.S);
+      // }
+
+      // if (typeof res.V !== "undefined") {
+      //   if (Array.isArray(res.V)) {
+      //     for (let item of res.V) {
+      //       customConsole.log(item);
+      //     }
+      //   }
+      // }
+
+      await invoke<{ S?: string; V?: string[] }>("run_js_script", {
+        path: currentTab.filePath,
+      });
     }
   };
 
