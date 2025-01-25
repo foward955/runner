@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::env::current_dir;
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 use std::os::windows::process::CommandExt;
 use std::rc::Rc;
 use std::sync::mpsc::channel;
@@ -129,22 +129,27 @@ pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
         .arg("--allow-import")
         .arg(path.as_str())
         .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {
         Ok(mut cmd) => {
             set_new_running(app.clone());
 
-            let app_clone = app.clone();
+            let app_stdout_handle = app.clone();
+            let app_stderr_handle = app.clone();
+
             let stdout = cmd.stdout.take().unwrap();
-            let reader = std::io::BufReader::new(stdout);
+            let stderr = cmd.stderr.take().unwrap();
 
             let mut terminate = false;
 
-            let handle = std::thread::spawn(move || {
+            let stdout_handle = std::thread::spawn(move || {
+                let reader = std::io::BufReader::new(stdout);
+
                 // 将输出逐行写入文件
                 for line_result in reader.lines() {
-                    let state = app_clone.state::<Mutex<AppState>>();
+                    let state = app_stdout_handle.state::<Mutex<AppState>>();
                     let state = state.lock().unwrap();
 
                     if state.exit_js_run {
@@ -156,7 +161,7 @@ pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
 
                     match line_result {
                         Ok(line) => {
-                            app_clone.emit("console-message", line).unwrap();
+                            app_stdout_handle.emit("console-message", line).unwrap();
                         }
                         Err(_) => {
                             let _ = cmd.kill();
@@ -167,10 +172,22 @@ pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
                 }
 
                 // finish read from the stdout
-                app_clone.emit("console-finish", terminate).unwrap();
+                app_stdout_handle.emit("console-finish", terminate).unwrap();
             });
 
-            handle.join().unwrap();
+            let stderr_handle = std::thread::spawn(move || {
+                let mut reader = std::io::BufReader::new(stderr);
+
+                let mut err = String::default();
+                reader.read_to_string(&mut err).unwrap();
+
+                app_stderr_handle.emit("console-message", err).unwrap();
+                // finish read from the stdout
+                app_stderr_handle.emit("console-finish", terminate).unwrap();
+            });
+
+            stdout_handle.join().unwrap();
+            stderr_handle.join().unwrap();
 
             reset_app_state(app);
         }

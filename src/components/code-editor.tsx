@@ -261,6 +261,7 @@ export function CodeEditor() {
           typeof arg === "object" ? JSON.stringify(arg, null, 2) : String(arg)
         )
         .join(" ");
+
       outputRef.current = [...outputRef.current, formatted];
       setOutput(outputRef.current.join("\n"));
     },
@@ -650,6 +651,7 @@ export function CodeEditor() {
             </div>
           </div>
         </ResizablePanel>
+
         <ResizableHandle withHandle />
 
         <ResizablePanel defaultSize={50} minSize={20}>
