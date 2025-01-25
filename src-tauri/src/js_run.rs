@@ -1,8 +1,10 @@
 use std::cell::RefCell;
 use std::env::current_dir;
-use std::io::Read;
+use std::io::BufRead;
+use std::os::windows::process::CommandExt;
 use std::rc::Rc;
 use std::sync::mpsc::channel;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use deno_core::error::OpError;
@@ -12,9 +14,10 @@ use deno_core::RuntimeOptions;
 use deno_core::{extension, op2, JsRuntime};
 use serde::Deserialize;
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use crate::APP_HANDLE;
+use crate::app_state::{check_js_running, reset_app_state, set_new_running};
+use crate::AppState;
 
 thread_local! {
     static MSG: RefCell<Vec<String>> = const {RefCell::new(vec![])}
@@ -43,7 +46,7 @@ pub enum ConsoleResult {
 }
 
 #[tauri::command]
-pub(crate) async fn greet(path: String) -> ConsoleResult {
+pub(crate) async fn run_js_by_deno_core(path: String) -> ConsoleResult {
     let (sx, rx) = channel();
     let (sx1, rx1) = channel();
 
@@ -114,38 +117,67 @@ pub(crate) async fn greet(path: String) -> ConsoleResult {
 }
 
 #[tauri::command]
-pub(crate) async fn run_js_script(path: String) {
-    let command = subprocess::Exec::cmd("deno")
-        .arg("--allow-import")
-        .arg(path.as_str());
-
-    let mut p = command
-        .stdout(subprocess::Redirection::Pipe)
-        .popen()
-        .unwrap();
-
-    if let Some(status) = p.wait_timeout(Duration::from_secs(3)).unwrap() {
-        match p.stdout.take() {
-            Some(mut f) => {
-                let mut s = String::default();
-                f.read_to_string(&mut s).unwrap();
-
-                match APP_HANDLE.lock() {
-                    Ok(mut handle_guard) => match handle_guard.as_mut() {
-                        Some(handle) => {
-                            handle.emit("console-message", s).unwrap();
-                        }
-                        None => {}
-                    },
-                    Err(_) => {}
-                }
-            }
-            None => {}
-        }
-        println!("process finished as {:?}", status);
-    } else {
-        p.terminate().unwrap();
-        p.wait().unwrap();
-        println!("process killed");
+pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
+    if check_js_running(app.clone()) {
+        println!("cmd not finish, not execute new script.");
+        return;
     }
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    match std::process::Command::new("deno")
+        .arg("--allow-import")
+        .arg(path.as_str())
+        .stdout(std::process::Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+    {
+        Ok(mut cmd) => {
+            set_new_running(app.clone());
+
+            let app_clone = app.clone();
+            let stdout = cmd.stdout.take().unwrap();
+            let reader = std::io::BufReader::new(stdout);
+
+            let handle = std::thread::spawn(move || {
+                // 将输出逐行写入文件
+                for line_result in reader.lines() {
+                    let state = app_clone.state::<Mutex<AppState>>();
+                    let state = state.lock().unwrap();
+
+                    if state.exit_js_run {
+                        let _ = cmd.kill();
+                        println!("cmd terminated.");
+                        break;
+                    }
+
+                    match line_result {
+                        Ok(line) => {
+                            app_clone.emit("console-message", line).unwrap();
+                        }
+                        Err(_) => {
+                            let _ = cmd.kill();
+                            println!("cmd terminated.");
+                        }
+                    }
+                }
+
+                // // finish read from the stdout
+                // app_clone.emit("console-finish", true).unwrap();
+            });
+
+            handle.join().unwrap();
+
+            reset_app_state(app);
+        }
+        Err(_) => {}
+    }
+}
+
+#[tauri::command]
+pub(crate) fn terminate_run_js_script<R: Runtime>(app: AppHandle<R>) {
+    let state = app.state::<Mutex<AppState>>();
+
+    let mut state = state.lock().unwrap();
+    state.exit_js_run = true;
 }

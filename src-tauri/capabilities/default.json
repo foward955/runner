@@ -8,6 +8,7 @@
     "dialog:allow-open",
     "fs:default",
     "fs:allow-app-write",
+    "fs:allow-app-read",
     "fs:allow-rename"
   ]
 }

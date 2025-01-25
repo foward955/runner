@@ -3,35 +3,30 @@
 
 use std::sync::Mutex;
 
-use once_cell::sync::Lazy;
-use tauri::AppHandle;
+use app_state::AppState;
+use tauri::Manager;
 
+pub(crate) mod app_state;
 pub(crate) mod file;
 pub(crate) mod js_run;
-
-pub(crate) static APP_HANDLE: Lazy<Mutex<Option<AppHandle>>> = Lazy::new(|| Mutex::new(None));
 
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            let handle = app.handle();
-            // 存储 AppHandle
-            match APP_HANDLE.lock() {
-                Ok(mut handle_guard) => {
-                    *handle_guard = Some(handle.clone());
-                }
-                Err(_) => {}
-            };
+            app.manage(Mutex::new(AppState::default()));
 
             Ok(())
         })
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            js_run::greet,
+            js_run::run_js_by_deno_core,
             js_run::run_js_script,
+            js_run::terminate_run_js_script,
             file::rename_file,
-            file::write_file
+            file::write_file,
+            file::read_file,
+            file::file_exist,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

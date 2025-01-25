@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import {
   Download,
   FileCode,
+  Ban,
   Moon,
   Package,
   Play,
@@ -21,6 +22,7 @@ interface EditorToolbarProps {
   packagesCount: number;
   editorTheme: "vs-dark" | "light";
   onRun: () => void;
+  onTerminate: () => void;
   // onReset: () => void;
   onToggleTheme: () => void;
   onDownload: () => void;
@@ -33,6 +35,7 @@ export function EditorToolbar({
   packagesCount,
   editorTheme,
   onRun,
+  onTerminate,
   // onReset,
   onToggleTheme,
   onOpenFile,
@@ -48,6 +51,12 @@ export function EditorToolbar({
             <Play className="w-4 h-4 mr-2" />
             Run
           </Button>
+
+          <Button onClick={onTerminate} size="sm" variant="secondary">
+            <Ban className="w-4 h-4 mr-2" />
+            Terminate
+          </Button>
+
           {/* <Button onClick={onReset} variant="outline" size="sm">
                         <Trash2 className="w-4 h-4 mr-2" />
                         Reset

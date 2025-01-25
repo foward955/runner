@@ -1,7 +1,7 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { sep, resolve as pathResolve } from "@tauri-apps/api/path";
@@ -30,12 +30,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import axios from "axios";
 import _ from "lodash";
-import moment from "moment";
-import dayjs from "dayjs";
-import chalk from "chalk";
-import * as R from "ramda";
+// import axios from "axios";
+// import moment from "moment";
+// import dayjs from "dayjs";
+// import chalk from "chalk";
+// import * as R from "ramda";
 import { TerminalHeader } from "./terminal-header";
 import { EditorTabsScrollArea } from "./EditorTabsScrollArea";
 import { TerminalOutput } from "./terminal-output";
@@ -53,13 +53,30 @@ const defaultCode = `// 🎉 Welcome to JavaScript Playground 🎉
 // Write, experiment, and have fun!`;
 
 const AVAILABLE_PACKAGES = {
-  axios: axios,
-  lodash: _,
-  moment: moment,
-  dayjs: dayjs,
-  chalk: chalk,
-  ramda: R,
+  // axios: axios,
+  // lodash: _,
+  // moment: moment,
+  // dayjs: dayjs,
+  // chalk: chalk,
+  // ramda: R,
 };
+
+interface ConsoleOutput {
+  unlistenConsoleMessage?: UnlistenFn;
+  unlistenConsoleFinish?: UnlistenFn;
+  unlistenToastMessage?: UnlistenFn;
+  unlistenClearConsole?: UnlistenFn;
+}
+
+interface ToastMessage {
+  type: string;
+  msg: string;
+}
+
+enum ToastType {
+  Info = "Info",
+  Err = "Error",
+}
 
 export function CodeEditor() {
   const [editorTheme, setEditorTheme] = useState<"vs-dark" | "light">(
@@ -70,7 +87,9 @@ export function CodeEditor() {
   const [packages, setPackages] = useState<string[]>([]);
   const [isPackageSheetOpen, setIsPackageSheetOpen] = useState(false);
   const outputRef = useRef<string[]>([]);
-  // const timeoutRef = useRef<NodeJS.Timeout>();
+
+  const consoleOutputRef = useRef<ConsoleOutput>({});
+
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [nextTabId, setNextTabId] = useState(1);
   const [tabs, setTabs] = useState<FileTab[]>([]);
@@ -80,12 +99,57 @@ export function CodeEditor() {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
-    // Solo se ejecuta en el cliente
+    if (!consoleOutputRef.current.unlistenToastMessage) {
+      listen<ToastMessage>("toast-message", (event) => {
+        if (event.payload.type === ToastType.Info) {
+          toast.info(event.payload.msg);
+        }
+
+        if (event.payload.type === ToastType.Err) {
+          toast.error(event.payload.msg);
+        }
+      }).then((unlistenFnRef) => {
+        consoleOutputRef.current.unlistenToastMessage = unlistenFnRef;
+      });
+    }
+
+    if (!consoleOutputRef.current.unlistenConsoleMessage) {
+      listen("console-message", (event) => {
+        customConsole.log(event.payload);
+      }).then((unlistenFnRef) => {
+        consoleOutputRef.current.unlistenConsoleMessage = unlistenFnRef;
+      });
+    }
+
+    // if (!consoleOutputRef.current.unlistenConsoleFinish) {
+    //   listen("console-finish", (_event) => {}).then((unlistenFnRef) => {
+    //     consoleOutputRef.current.unlistenConsoleFinish = unlistenFnRef;
+    //   });
+    // }
+
+    if (!consoleOutputRef.current.unlistenClearConsole) {
+      listen("console-clear", (_event) => {
+        clearTerminal();
+      }).then((unlistenFnRef) => {
+        consoleOutputRef.current.unlistenClearConsole = unlistenFnRef;
+      });
+    }
+
+    return () => {
+      consoleOutputRef.current.unlistenToastMessage?.();
+      consoleOutputRef.current.unlistenConsoleMessage?.();
+      consoleOutputRef.current.unlistenClearConsole?.();
+      // consoleOutputRef.current.unlistenConsoleFinish?.();
+      console.log("unlisten");
+    };
+  }, []);
+
+  useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 840);
     };
 
-    handleResize(); // Ejecutar una vez al montar
+    handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -96,7 +160,31 @@ export function CodeEditor() {
     const savedNextTabId = localStorage.getItem("playground-next-tab-id");
 
     if (savedTabs) {
-      setTabs(JSON.parse(savedTabs));
+      // update content
+      async function updateTab(tabs: FileTab[]) {
+        const newTabs = [];
+
+        for (const tab of tabs) {
+          if (tab.filePath) {
+            const content: string | null = await invoke("read_file", {
+              path: tab.filePath,
+            });
+
+            if (content) {
+              tab.content = content;
+              newTabs.push(tab);
+            }
+          }
+        }
+
+        return newTabs;
+      }
+
+      let tabs: FileTab[] = JSON.parse(savedTabs);
+
+      updateTab(tabs).then((newTabs: FileTab[]) => {
+        setTabs(newTabs);
+      });
     } else {
       setTabs([
         {
@@ -153,7 +241,7 @@ export function CodeEditor() {
     }
   };
 
-  const onClearTerminal = () => {
+  const clearTerminal = () => {
     setOutput("");
     outputRef.current = [];
   };
@@ -203,39 +291,6 @@ export function CodeEditor() {
         return undefined;
       },
     });
-  };
-
-  const runJsCode = async () => {
-    const currentTab = tabs.find((tab) => tab.id === activeTab);
-
-    if (currentTab) {
-      let unlisten = await listen("console-message", (event) => {
-        outputRef.current = [];
-        setOutput("");
-        customConsole.log(event.payload);
-        unlisten();
-      });
-
-      // let res = await invoke<{ S?: string; V?: string[] }>("greet", {
-      //   path: currentTab.filePath,
-      // });
-
-      // if (typeof res.S !== "undefined") {
-      //   customConsole.log(res.S);
-      // }
-
-      // if (typeof res.V !== "undefined") {
-      //   if (Array.isArray(res.V)) {
-      //     for (let item of res.V) {
-      //       customConsole.log(item);
-      //     }
-      //   }
-      // }
-
-      await invoke<{ S?: string; V?: string[] }>("run_js_script", {
-        path: currentTab.filePath,
-      });
-    }
   };
 
   const handleEditorChange = (value: string | undefined) => {
@@ -409,6 +464,20 @@ export function CodeEditor() {
     }
   };
 
+  const runCode = async () => {
+    const currentTab = tabs.find((tab) => tab.id === activeTab);
+
+    if (currentTab) {
+      await invoke<{ S?: string; V?: string[] }>("run_js_script", {
+        path: currentTab.filePath,
+      });
+    }
+  };
+
+  const terminateRun = async () => {
+    await invoke("terminate_run_js_script");
+  };
+
   const downloadCode = async () => {
     const currentTab = tabs.find((tab) => tab.id === activeTab);
 
@@ -451,12 +520,6 @@ export function CodeEditor() {
     }
   };
 
-  const runCode = () => {
-    runJsCode().then(() => {
-      toast.success("Code executed!");
-    });
-  };
-
   const togglePackage = () => {
     setIsPackageSheetOpen(true);
   };
@@ -490,6 +553,7 @@ export function CodeEditor() {
               packagesCount={packages.length}
               editorTheme={editorTheme}
               onRun={runCode}
+              onTerminate={terminateRun}
               onToggleTheme={toggleEditorTheme}
               onDownload={downloadCode}
               onOpenFile={openFile}
@@ -586,7 +650,7 @@ export function CodeEditor() {
 
         <ResizablePanel defaultSize={50} minSize={20}>
           <div className="h-full bg-black/5 dark:bg-white/5">
-            <TerminalHeader onClear={onClearTerminal} />
+            <TerminalHeader onClear={clearTerminal} />
             <TerminalOutput output={output} ref={scrollAreaRef} />
           </div>
         </ResizablePanel>
