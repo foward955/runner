@@ -121,11 +121,15 @@ export function CodeEditor() {
       });
     }
 
-    // if (!consoleOutputRef.current.unlistenConsoleFinish) {
-    //   listen("console-finish", (_event) => {}).then((unlistenFnRef) => {
-    //     consoleOutputRef.current.unlistenConsoleFinish = unlistenFnRef;
-    //   });
-    // }
+    if (!consoleOutputRef.current.unlistenConsoleFinish) {
+      listen("console-finish", (event) => {
+        toast.info(
+          `js running task is ${event.payload ? "terminated" : "finished"}.`
+        );
+      }).then((unlistenFnRef) => {
+        consoleOutputRef.current.unlistenConsoleFinish = unlistenFnRef;
+      });
+    }
 
     if (!consoleOutputRef.current.unlistenClearConsole) {
       listen("console-clear", (_event) => {
@@ -139,7 +143,7 @@ export function CodeEditor() {
       consoleOutputRef.current.unlistenToastMessage?.();
       consoleOutputRef.current.unlistenConsoleMessage?.();
       consoleOutputRef.current.unlistenClearConsole?.();
-      // consoleOutputRef.current.unlistenConsoleFinish?.();
+      consoleOutputRef.current.unlistenConsoleFinish?.();
       console.log("unlisten");
     };
   }, []);

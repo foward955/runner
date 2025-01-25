@@ -139,6 +139,8 @@ pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
             let stdout = cmd.stdout.take().unwrap();
             let reader = std::io::BufReader::new(stdout);
 
+            let mut terminate = false;
+
             let handle = std::thread::spawn(move || {
                 // 将输出逐行写入文件
                 for line_result in reader.lines() {
@@ -147,6 +149,7 @@ pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
 
                     if state.exit_js_run {
                         let _ = cmd.kill();
+                        terminate = true;
                         println!("cmd terminated.");
                         break;
                     }
@@ -157,13 +160,14 @@ pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
                         }
                         Err(_) => {
                             let _ = cmd.kill();
+                            terminate = true;
                             println!("cmd terminated.");
                         }
                     }
                 }
 
-                // // finish read from the stdout
-                // app_clone.emit("console-finish", true).unwrap();
+                // finish read from the stdout
+                app_clone.emit("console-finish", terminate).unwrap();
             });
 
             handle.join().unwrap();
@@ -177,7 +181,9 @@ pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
 #[tauri::command]
 pub(crate) fn terminate_run_js_script<R: Runtime>(app: AppHandle<R>) {
     let state = app.state::<Mutex<AppState>>();
-
     let mut state = state.lock().unwrap();
-    state.exit_js_run = true;
+
+    if state.js_running {
+        state.exit_js_run = true;
+    }
 }
