@@ -1,62 +1,42 @@
-use std::sync::Mutex;
+use std::process::Child;
 
-use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+pub const CONSOLE_OUTPUT: &'static str = "console-output";
+pub const CONSOLE_CLEAR: &'static str = "console-clear";
+pub const TOAST_OUTPUT: &'static str = "toast-output";
 
 #[derive(Default)]
 pub(crate) struct AppState {
-    pub(crate) exit_js_run: bool,
-    pub(crate) js_running: bool,
+    pub(crate) running_command: Option<Child>,
+    pub(crate) terminated: bool,
 }
 
-#[derive(Serialize, Clone, Copy)]
-pub(crate) enum ToastType {
-    Info,
-}
-
-#[derive(Serialize, Clone)]
-struct ToastMessage {
-    r#type: ToastType,
-    msg: String,
-}
-
-impl ToastMessage {
-    pub fn new(t: ToastType, msg: String) -> Self {
-        Self { r#type: t, msg }
+impl AppState {
+    pub(crate) fn terminate_command(&mut self) -> Result<(), std::io::Error> {
+        if let Some(mut child) = self.running_command.take() {
+            child.kill().and_then(|_| {
+                self.terminated = true;
+                Ok(())
+            })
+        } else {
+            Ok(())
+        }
     }
-}
 
-pub(crate) fn check_js_running<R: Runtime>(app: AppHandle<R>) -> bool {
-    let state = app.state::<Mutex<AppState>>();
-    let state = state.lock().unwrap();
-
-    if state.js_running {
-        let _ = app.emit(
-            "toast-message",
-            ToastMessage::new(
-                ToastType::Info,
-                String::from("js script is running, please wait or stop old task."),
-            ),
-        );
-        true
-    } else {
-        false
+    pub(crate) fn terminated(&self) -> bool {
+        self.terminated
     }
-}
 
-pub(crate) fn set_new_running<R: Runtime>(app: AppHandle<R>) {
-    let state = app.state::<Mutex<AppState>>();
-    let mut state = state.lock().unwrap();
+    pub(crate) fn run_new(&mut self, cmd: Child) {
+        self.running_command = Some(cmd);
+        self.terminated = false;
+    }
 
-    state.js_running = true;
+    pub(crate) fn reset(&mut self) {
+        self.running_command = None;
+        self.terminated = false;
+    }
 
-    // start running a new js script, clear before terminal
-    app.emit("console-clear", true).unwrap();
-}
-
-pub(crate) fn reset_app_state<R: Runtime>(app: AppHandle<R>) {
-    let state = app.state::<Mutex<AppState>>();
-    let mut state = state.lock().unwrap();
-    state.js_running = false;
-    state.exit_js_run = false;
+    pub(crate) fn check_js_running(&self) -> bool {
+        self.running_command.is_some()
+    }
 }

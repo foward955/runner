@@ -16,13 +16,15 @@ use serde::Deserialize;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use crate::app_state::{check_js_running, reset_app_state, set_new_running};
+use crate::app_state::{CONSOLE_CLEAR, CONSOLE_OUTPUT, TOAST_OUTPUT};
+use crate::message::Message;
 use crate::AppState;
 
 thread_local! {
     static MSG: RefCell<Vec<String>> = const {RefCell::new(vec![])}
 }
 
+pub const CREATE_NO_WINDOW: u32 = 0x08000000;
 static RUNTIME_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/RUNJS_SNAPSHOT.bin"));
 
 #[op2]
@@ -118,15 +120,23 @@ pub(crate) async fn run_js_by_deno_core(path: String) -> ConsoleResult {
 
 #[tauri::command]
 pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
-    if check_js_running(app.clone()) {
-        println!("cmd not finish, not execute new script.");
-        return;
-    }
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().unwrap();
 
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
+        if state.check_js_running() {
+            let _ = app.emit(
+                TOAST_OUTPUT,
+                Message::toast_info("js script is running, please wait or stop old task.".into()),
+            );
+            println!("cmd not finish, execute new script failed.");
+            return;
+        }
+    }
 
     match std::process::Command::new("deno")
         .arg("--allow-import")
+        .arg("--allow-net")
         .arg(path.as_str())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -134,45 +144,34 @@ pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
         .spawn()
     {
         Ok(mut cmd) => {
-            set_new_running(app.clone());
-
             let app_stdout_handle = app.clone();
             let app_stderr_handle = app.clone();
 
             let stdout = cmd.stdout.take().unwrap();
             let stderr = cmd.stderr.take().unwrap();
 
-            let mut terminate = false;
+            {
+                let state = app.state::<Mutex<AppState>>();
+                let mut state = state.lock().unwrap();
+                println!("start a new running cmd.");
+                state.run_new(cmd);
+                // start running a new js script, clear before terminal
+                let _ = app.emit(CONSOLE_CLEAR, true);
+            }
 
             let stdout_handle = std::thread::spawn(move || {
                 let reader = std::io::BufReader::new(stdout);
 
                 // 将输出逐行写入文件
                 for line_result in reader.lines() {
-                    let state = app_stdout_handle.state::<Mutex<AppState>>();
-                    let state = state.lock().unwrap();
-
-                    if state.exit_js_run {
-                        let _ = cmd.kill();
-                        terminate = true;
-                        println!("cmd terminated.");
-                        break;
-                    }
-
                     match line_result {
                         Ok(line) => {
-                            app_stdout_handle.emit("console-message", line).unwrap();
+                            let _ = app_stdout_handle
+                                .emit(CONSOLE_OUTPUT, Message::console_info(Some(line)));
                         }
-                        Err(_) => {
-                            let _ = cmd.kill();
-                            terminate = true;
-                            println!("cmd terminated.");
-                        }
+                        Err(_) => {}
                     }
                 }
-
-                // finish read from the stdout
-                app_stdout_handle.emit("console-finish", terminate).unwrap();
             });
 
             let stderr_handle = std::thread::spawn(move || {
@@ -181,15 +180,26 @@ pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
                 let mut err = String::default();
                 reader.read_to_string(&mut err).unwrap();
 
-                app_stderr_handle.emit("console-message", err).unwrap();
-                // finish read from the stdout
-                app_stderr_handle.emit("console-finish", terminate).unwrap();
+                let _ = app_stderr_handle.emit(CONSOLE_OUTPUT, Message::console_error(Some(err)));
             });
 
             stdout_handle.join().unwrap();
             stderr_handle.join().unwrap();
 
-            reset_app_state(app);
+            {
+                let state = app.state::<Mutex<AppState>>();
+                let mut state = state.lock().unwrap();
+
+                if !state.terminated() {
+                    let _ = app.emit(
+                        TOAST_OUTPUT,
+                        Message::toast_success("js running successed.".into()),
+                    );
+                    println!("js running successed.");
+                }
+
+                state.reset();
+            }
         }
         Err(_) => {}
     }
@@ -200,7 +210,14 @@ pub(crate) fn terminate_run_js_script<R: Runtime>(app: AppHandle<R>) {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
 
-    if state.js_running {
-        state.exit_js_run = true;
+    if state.check_js_running() {
+        println!("cmd terminating.");
+        if state.terminate_command().is_ok() {
+            let _ = app.emit(
+                TOAST_OUTPUT,
+                Message::toast_warn("running js terminated.".into()),
+            );
+            println!("cmd terminated.");
+        }
     }
 }

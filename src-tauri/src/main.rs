@@ -9,6 +9,7 @@ use tauri::Manager;
 pub(crate) mod app_state;
 pub(crate) mod file;
 pub(crate) mod js_run;
+pub(crate) mod message;
 
 fn main() {
     tauri::Builder::default()

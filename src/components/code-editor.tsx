@@ -63,20 +63,31 @@ const AVAILABLE_PACKAGES = {
 
 interface ConsoleOutput {
   unlistenConsoleMessage?: UnlistenFn;
-  unlistenConsoleFinish?: UnlistenFn;
   unlistenToastMessage?: UnlistenFn;
   unlistenClearConsole?: UnlistenFn;
 }
 
-interface ToastMessage {
-  type: string;
-  msg: string;
+enum MessageContainer {
+  Console = "Console",
+  Toast = "Toast",
 }
 
-enum ToastType {
+enum MessageType {
+  Success = "Success",
+  Warn = "Warn",
   Info = "Info",
-  Err = "Error",
+  Error = "Error",
 }
+
+interface Message {
+  container: MessageContainer;
+  type: MessageType;
+  content: string | null;
+}
+
+const TOAST_OUTPUT = "toast-output";
+const CONSOLE_OUTPUT = "console-output";
+const CONSOLE_CLEAR = "console-clear";
 
 export function CodeEditor() {
   const [editorTheme, setEditorTheme] = useState<"vs-dark" | "light">(
@@ -89,7 +100,6 @@ export function CodeEditor() {
   const outputRef = useRef<string[]>([]);
 
   const consoleOutputRef = useRef<ConsoleOutput>({});
-
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [nextTabId, setNextTabId] = useState(1);
   const [tabs, setTabs] = useState<FileTab[]>([]);
@@ -100,13 +110,21 @@ export function CodeEditor() {
 
   useEffect(() => {
     if (!consoleOutputRef.current.unlistenToastMessage) {
-      listen<ToastMessage>("toast-message", (event) => {
-        if (event.payload.type === ToastType.Info) {
-          toast.info(event.payload.msg);
+      listen<Message>(TOAST_OUTPUT, (event) => {
+        if (event.payload.type === MessageType.Info) {
+          toast.info(event.payload.content);
         }
 
-        if (event.payload.type === ToastType.Err) {
-          toast.error(event.payload.msg);
+        if (event.payload.type === MessageType.Error) {
+          toast.error(event.payload.content);
+        }
+
+        if (event.payload.type === MessageType.Success) {
+          toast.success(event.payload.content);
+        }
+
+        if (event.payload.type === MessageType.Warn) {
+          toast.warning(event.payload.content);
         }
       }).then((unlistenFnRef) => {
         consoleOutputRef.current.unlistenToastMessage = unlistenFnRef;
@@ -114,25 +132,15 @@ export function CodeEditor() {
     }
 
     if (!consoleOutputRef.current.unlistenConsoleMessage) {
-      listen("console-message", (event) => {
-        customConsole.log(event.payload);
+      listen<Message>(CONSOLE_OUTPUT, (event) => {
+        customConsole.log(event.payload.content);
       }).then((unlistenFnRef) => {
         consoleOutputRef.current.unlistenConsoleMessage = unlistenFnRef;
       });
     }
 
-    if (!consoleOutputRef.current.unlistenConsoleFinish) {
-      listen("console-finish", (event) => {
-        toast.info(
-          `js running task is ${event.payload ? "terminated" : "finished"}.`
-        );
-      }).then((unlistenFnRef) => {
-        consoleOutputRef.current.unlistenConsoleFinish = unlistenFnRef;
-      });
-    }
-
     if (!consoleOutputRef.current.unlistenClearConsole) {
-      listen("console-clear", (_event) => {
+      listen(CONSOLE_CLEAR, (_event) => {
         clearTerminal();
       }).then((unlistenFnRef) => {
         consoleOutputRef.current.unlistenClearConsole = unlistenFnRef;
@@ -143,7 +151,6 @@ export function CodeEditor() {
       consoleOutputRef.current.unlistenToastMessage?.();
       consoleOutputRef.current.unlistenConsoleMessage?.();
       consoleOutputRef.current.unlistenClearConsole?.();
-      consoleOutputRef.current.unlistenConsoleFinish?.();
       console.log("unlisten");
     };
   }, []);
@@ -469,36 +476,40 @@ export function CodeEditor() {
     }
   };
 
-  const runCode = async () => {
+  const runCode = () => {
     const currentTab = tabs.find((tab) => tab.id === activeTab);
 
     if (currentTab) {
-      await invoke<{ S?: string; V?: string[] }>("run_js_script", {
+      invoke<{ S?: string; V?: string[] }>("run_js_script", {
         path: currentTab.filePath,
       });
     }
   };
 
-  const terminateRun = async () => {
-    await invoke("terminate_run_js_script");
+  const terminateRun = () => {
+    invoke("terminate_run_js_script");
   };
 
-  const downloadCode = async () => {
-    const currentTab = tabs.find((tab) => tab.id === activeTab);
+  const downloadCode = () => {
+    async function innerDownload() {
+      const currentTab = tabs.find((tab) => tab.id === activeTab);
 
-    const dirPath = await open({
-      multiple: false,
-      directory: true,
-    });
+      const dirPath = await open({
+        multiple: false,
+        directory: true,
+      });
 
-    if (dirPath && currentTab) {
-      const filePath = await pathResolve(dirPath, currentTab.name);
-      currentTab.filePath = filePath;
-      setTabs((prev) =>
-        prev.map((tab) => (tab.id === currentTab.id ? currentTab : tab))
-      );
-      await writeActiveTabContentToFile(currentTab);
+      if (dirPath && currentTab) {
+        const filePath = await pathResolve(dirPath, currentTab.name);
+        currentTab.filePath = filePath;
+        setTabs((prev) =>
+          prev.map((tab) => (tab.id === currentTab.id ? currentTab : tab))
+        );
+        await writeActiveTabContentToFile(currentTab);
+      }
     }
+
+    innerDownload();
   };
 
   const openFile = async () => {
