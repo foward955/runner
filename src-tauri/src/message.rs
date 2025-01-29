@@ -14,28 +14,51 @@ pub enum MessageType {
     Error,
 }
 
+#[derive(Serialize, Clone, Copy, Default)]
+pub enum MessageAction {
+    #[default]
+    None,
+    Clear,
+}
+
 #[derive(Serialize, Clone, Copy)]
 pub struct Message<T: Serialize> {
     container: MessageContainer,
     r#type: MessageType,
+    action: MessageAction,
     content: Option<T>,
 }
 
 impl<T: Serialize> Message<T> {
-    pub fn new(container: MessageContainer, ty: MessageType, content: Option<T>) -> Self {
+    pub fn new(
+        container: MessageContainer,
+        ty: MessageType,
+        action: MessageAction,
+        content: Option<T>,
+    ) -> Self {
         Self {
             container,
             r#type: ty,
+            action,
             content,
         }
     }
 
     pub fn new_console(ty: MessageType, content: Option<T>) -> Self {
-        Self::new(MessageContainer::Console, ty, content)
+        Self::new(MessageContainer::Console, ty, MessageAction::None, content)
     }
 
     pub fn new_toast(ty: MessageType, content: Option<T>) -> Self {
-        Self::new(MessageContainer::Toast, ty, content)
+        Self::new(MessageContainer::Toast, ty, MessageAction::None, content)
+    }
+
+    pub fn console_clear(content: Option<T>) -> Self {
+        Self::new(
+            MessageContainer::Console,
+            MessageType::Info,
+            MessageAction::Clear,
+            content,
+        )
     }
 
     pub fn console_success(content: Option<T>) -> Self {

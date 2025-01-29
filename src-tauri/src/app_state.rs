@@ -1,7 +1,7 @@
 use std::process::Child;
 
 pub const CONSOLE_OUTPUT: &'static str = "console-output";
-pub const CONSOLE_CLEAR: &'static str = "console-clear";
+// pub const CONSOLE_CLEAR: &'static str = "console-clear";
 pub const TOAST_OUTPUT: &'static str = "toast-output";
 
 #[derive(Default)]

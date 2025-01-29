@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use crate::app_state::{CONSOLE_CLEAR, CONSOLE_OUTPUT, TOAST_OUTPUT};
+use crate::app_state::{CONSOLE_OUTPUT, TOAST_OUTPUT};
 use crate::message::Message;
 use crate::AppState;
 
@@ -156,7 +156,7 @@ pub(crate) async fn run_js_script<R: Runtime>(app: AppHandle<R>, path: String) {
                 println!("start a new running cmd.");
                 state.run_new(cmd);
                 // start running a new js script, clear before terminal
-                let _ = app.emit(CONSOLE_CLEAR, true);
+                let _ = app.emit(CONSOLE_OUTPUT, Message::console_clear(None::<String>));
             }
 
             let stdout_handle = std::thread::spawn(move || {

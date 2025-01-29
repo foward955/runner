@@ -64,7 +64,6 @@ const AVAILABLE_PACKAGES = {
 interface ConsoleOutput {
   unlistenConsoleMessage?: UnlistenFn;
   unlistenToastMessage?: UnlistenFn;
-  unlistenClearConsole?: UnlistenFn;
 }
 
 enum MessageContainer {
@@ -79,15 +78,20 @@ enum MessageType {
   Error = "Error",
 }
 
+enum MessageAction {
+  None = "None",
+  Clear = "Clear",
+}
+
 interface Message {
   container: MessageContainer;
   type: MessageType;
+  action: MessageAction;
   content: string | null;
 }
 
 const TOAST_OUTPUT = "toast-output";
 const CONSOLE_OUTPUT = "console-output";
-const CONSOLE_CLEAR = "console-clear";
 
 export function CodeEditor() {
   const [editorTheme, setEditorTheme] = useState<"vs-dark" | "light">(
@@ -133,24 +137,19 @@ export function CodeEditor() {
 
     if (!consoleOutputRef.current.unlistenConsoleMessage) {
       listen<Message>(CONSOLE_OUTPUT, (event) => {
-        customConsole.log(event.payload.content);
+        if (event.payload.action === MessageAction.Clear) {
+          clearTerminal();
+        } else {
+          customConsole.log(event.payload.content);
+        }
       }).then((unlistenFnRef) => {
         consoleOutputRef.current.unlistenConsoleMessage = unlistenFnRef;
-      });
-    }
-
-    if (!consoleOutputRef.current.unlistenClearConsole) {
-      listen(CONSOLE_CLEAR, (_event) => {
-        clearTerminal();
-      }).then((unlistenFnRef) => {
-        consoleOutputRef.current.unlistenClearConsole = unlistenFnRef;
       });
     }
 
     return () => {
       consoleOutputRef.current.unlistenToastMessage?.();
       consoleOutputRef.current.unlistenConsoleMessage?.();
-      consoleOutputRef.current.unlistenClearConsole?.();
       console.log("unlisten");
     };
   }, []);
